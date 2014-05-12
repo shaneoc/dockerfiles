@@ -34,4 +34,5 @@ RUN chown -R shane.shane /home/shane/git-shell-commands
 RUN chmod 755 /home/shane/git-shell-commands/*
 
 EXPOSE 22
+#! expose: 22 git:2222
 CMD /usr/sbin/sshd -D

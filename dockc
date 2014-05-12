@@ -5,6 +5,7 @@ import argparse
 import subprocess
 import re
 import shutil
+from collections import OrderedDict
 
 dockerfile_tree = os.path.dirname(os.path.realpath(__file__))
 build_dir = os.path.join(dockerfile_tree, 'build')
@@ -17,20 +18,32 @@ class Main:
         parser.add_argument('image', nargs='?', default='all')
         args = parser.parse_args()
 
+        self.find_hostnames()
+        self.find_images()
+
         if args.action == 'build':
             self.build(args)
 
         if args.action == 'list':
-            self.find_images()
             for img in self.images.values():
                 img.print_info()
+
+        if args.action == 'add-ips':
+            self.add_ips()
 
     def find_images(self):
         self.images = dict()
         for path, _, filenames in os.walk(dockerfile_tree):
-            if 'Dockerfile' in filenames:
-                img = Image(path)
+            if not path.startswith(build_dir) and 'Dockerfile' in filenames:
+                img = Image(self, path)
                 self.images[img.short_path] = img
+
+    def find_hostnames(self):
+        self.hostnames = OrderedDict()
+        with open(os.path.join(dockerfile_tree, 'hosts')) as f:
+            for line in f:
+                ip, hostname = line.strip().split()
+                self.hostnames[hostname] = ip
 
     def build(self, args):
         if os.path.exists(build_dir):
@@ -40,7 +53,6 @@ class Main:
                 sys.exit('Cannot continue')
             shutil.rmtree(build_dir)
 
-        self.find_images()
         requested_image = args.image if 'image' in args else 'all'
         if requested_image == 'all':
             for image in self.images.values():
@@ -51,8 +63,13 @@ class Main:
             else:
                 sys.exit('Error: unknown image: {}'.format(image))
 
+    def add_ips(self):
+        for i, (hostname, ip) in enumerate(self.hostnames.items()):
+                call('sudo ifconfig wlan0:{} {} up'.format(i, ip))
+
+
 class Image:
-    def __init__(self, path):
+    def __init__(self, main, path):
         self.path           = path
         self.short_path     = os.path.relpath(path, dockerfile_tree)
         self.image_name     = self.short_path.replace('/','_') + '_img'
@@ -64,12 +81,17 @@ class Image:
             for line in f:
                 m = re.match(r'^\s*#!\s*run-arg:(.+)$', line)
                 if m != None:
-                    self.run_args += m.group(1)
+                    self.run_args += m.group(1) + ' '
 
                 m = re.match(r'^\s*#!\s*cp-secret:\s*(\S+)(\s+(\S+))?\s*$', line)
                 if m != None:
                     secret_to = m.group(3) if m.group(3) != None else ''
                     self.secret_files.append((m.group(1), secret_to))
+
+                m = re.match(r'^\s*#!\s*expose:\s*(\d+) (\S+):(\d+)\s*$', line)
+                if m != None:
+                    self.run_args += '-p {}:{}:{} '.format(
+                            main.hostnames[m.group(2)], m.group(3), m.group(1))
 
     def build(self):
         print('Building {}...'.format(self.short_path))

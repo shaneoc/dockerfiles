@@ -22,4 +22,5 @@ RUN mkdir /git
 # Configure lighttpd
 ADD lighttpd.conf /etc/lighttpd/
 EXPOSE 80
+#! expose: 80 git:80
 CMD /usr/sbin/lighttpd -f /etc/lighttpd/lighttpd.conf -D

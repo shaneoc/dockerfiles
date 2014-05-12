@@ -25,4 +25,5 @@ RUN chmod -R o-rwx /etc/ssh
 RUN mkdir /var/run/sshd
 
 EXPOSE 22
+#! expose: 22 public-ssh:2222
 CMD /usr/sbin/sshd -D
