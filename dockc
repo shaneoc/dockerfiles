@@ -1,0 +1,107 @@
+#!/usr/bin/python3
+import sys
+import os
+import argparse
+import subprocess
+import re
+import shutil
+
+dockerfile_tree = os.path.dirname(os.path.realpath(__file__))
+build_dir = os.path.join(dockerfile_tree, 'build')
+secrets_dir = dockerfile_tree + '.secrets'
+
+class Main:
+    def __init__(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument('action')
+        parser.add_argument('image', nargs='?', default='all')
+        args = parser.parse_args()
+
+        if args.action == 'build':
+            self.build(args)
+
+        if args.action == 'list':
+            self.find_images()
+            for img in self.images.values():
+                img.print_info()
+
+    def find_images(self):
+        self.images = dict()
+        for path, _, filenames in os.walk(dockerfile_tree):
+            if 'Dockerfile' in filenames:
+                img = Image(path)
+                self.images[img.short_path] = img
+
+    def build(self, args):
+        if os.path.exists(build_dir):
+            yn = input('Warning: build dir {} already exists, delete it? [y/N] '
+                    .format(build_dir))
+            if yn != 'y' and yn != 'Y':
+                sys.exit('Cannot continue')
+            shutil.rmtree(build_dir)
+
+        self.find_images()
+        requested_image = args.image if 'image' in args else 'all'
+        if requested_image == 'all':
+            for image in self.images.values():
+                image.build()
+        else:
+            if requested_image in self.images:
+                self.images[requested_image].build()
+            else:
+                sys.exit('Error: unknown image: {}'.format(image))
+
+class Image:
+    def __init__(self, path):
+        self.path           = path
+        self.short_path     = os.path.relpath(path, dockerfile_tree)
+        self.image_name     = self.short_path.replace('/','_') + '_img'
+        self.container_name = self.short_path.replace('/','_')
+
+        self.run_args = ''
+        self.secret_files = []
+        with open(os.path.join(self.path, 'Dockerfile')) as f:
+            for line in f:
+                m = re.match(r'^\s*#!\s*run-arg:(.+)$', line)
+                if m != None:
+                    self.run_args += m.group(1)
+
+                m = re.match(r'^\s*#!\s*cp-secret:\s*(\S+)(\s+(\S+))?\s*$', line)
+                if m != None:
+                    secret_to = m.group(3) if m.group(3) != None else ''
+                    self.secret_files.append((m.group(1), secret_to))
+
+    def build(self):
+        print('Building {}...'.format(self.short_path))
+
+        print('* Copying files to build directory')
+        shutil.copytree(self.path, build_dir, symlinks=True)
+        print('* Adding secret files')
+        for secret_from, secret_to in self.secret_files:
+            call('cp -Rp {} {}'.format(os.path.join(secrets_dir,
+                secret_from), os.path.join(build_dir, secret_to)))
+
+        print('* Deleting existing image')
+        call('sudo docker.io stop {} || true'.format(self.container_name))
+        call('sudo docker.io rm {} || true'.format(self.container_name))
+        call('sudo docker.io rmi {} || true'.format(self.image_name))
+
+        print('* Building new image')
+        call('sudo docker.io build -t {} {}'.format(self.image_name, build_dir))
+
+        print('* Running new image')
+        call('sudo docker.io run -d --name="{}" {} {}'.format(self.container_name,
+            self.run_args, self.image_name))
+
+        print('* Deleting build directory')
+        shutil.rmtree(build_dir)
+
+    def print_info(self):
+        print(self.short_path)
+
+def call(cmd):
+    # print('$ ' + cmd)
+    subprocess.check_call(cmd, shell=True)
+
+if __name__ == '__main__':
+    Main()
