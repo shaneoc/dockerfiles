@@ -1,6 +1,6 @@
 # This image expects the following volumes to be mounted:
 #   /cfg: contains host keys and user public key
-#   /git: contains actual git repositories
+#   /git: contains git repositories
 
 FROM ubuntu
 

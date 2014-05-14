@@ -33,7 +33,9 @@ if ! [ -e "/config.done" ]; then
 
     # Add host keys
     # TODO: copying them like this leaves them readable in the /cfg location by
-    # the shane user. Do this better somehow (maybe load it from a URL?)
+    # the unprivileged user. Do this better somehow (maybe load it from a URL?),
+    # or even better, reference the /cfg location from sshd_config and require
+    # the user to set the permissions properly
     for file in $host_keys; do
         install -o root -g root -m 600 /cfg/$file /etc/ssh/
     done
