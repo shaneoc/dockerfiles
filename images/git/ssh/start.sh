@@ -31,6 +31,11 @@ if ! [ -e "/config.done" ]; then
         exit 1
     fi
 
+    if ! [ -d /git ]; then
+        echo "Error: /git should be mounted as a volume"
+        exit 1
+    fi
+
     # Add host keys
     # TODO: copying them like this leaves them readable in the /cfg location by
     # the shane user. Do this better somehow (maybe load it from a URL?)
@@ -38,14 +43,18 @@ if ! [ -e "/config.done" ]; then
         install -o root -g root -m 600 /cfg/$file /etc/ssh/
     done
 
-    # Create user
+    # Create user (using git-shell as shell)
     username="$1"
-    useradd --create-home --shell /bin/bash "$username"
+    useradd --create-home --shell /usr/bin/git-shell "$username"
     inst="install -o $username -g $username"
 
     # Add user authorized_keys
     $inst -m 700 -d /home/$username/.ssh
     $inst -m 600 /cfg/authorized_keys /home/$username/.ssh/
+
+    # Add git-shell commands
+    $inst -m 755 -d /home/$username/git-shell-commands
+    $inst -m 755 /git-shell-commands/* /home/$username/git-shell-commands/
 
     touch ~/config.done
 fi

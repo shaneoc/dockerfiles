@@ -1,0 +1,60 @@
+#!/usr/bin/python3
+# vim: et ts=4 sw=4
+
+import sys
+import os
+import argparse
+import subprocess
+
+class Main:
+    def __init__(self):
+        parser = argparse.ArgumentParser()
+        parser.add_argument('action')
+        parser.add_argument('image', nargs='?', default='all')
+        args = parser.parse_args()
+
+        self.base_dir = os.path.dirname(os.path.realpath(__file__))
+        self.images_dir = os.path.join(self.base_dir, 'images')
+        self.find_images()
+
+        if args.action == 'build':
+            self.build(args.image)
+
+        if args.action == 'list':
+            for name, img in sorted(self.images.items()):
+                img.print_info()
+
+    def find_images(self):
+        self.images = dict()
+        for path, _, filenames in os.walk(self.images_dir):
+            if 'Dockerfile' in filenames:
+                img = Image(self, path)
+                self.images[img.name] = img
+
+    def build(self, requested_image):
+        if requested_image == 'all':
+            for image in self.images.values():
+                image.build()
+        else:
+            if requested_image in self.images:
+                self.images[requested_image].build()
+            else:
+                sys.exit('Error: unknown image: {}'.format(image))
+
+class Image:
+    def __init__(self, main, path):
+        self.path = path
+        self.name = os.path.relpath(path, main.images_dir).replace('/','.')
+
+    def build(self):
+        call('sudo docker.io build -t {} {}'.format(self.name, self.path))
+
+    def print_info(self):
+        print(self.name)
+
+def call(cmd):
+    # print('$ ' + cmd)
+    subprocess.check_call(cmd, shell=True)
+
+if __name__ == '__main__':
+    Main()
