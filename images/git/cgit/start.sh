@@ -1,3 +1,5 @@
+#!/bin/bash
+
 if ! [ -d /git ]; then
     echo "Error: /git should be mounted as a volume"
     exit 1

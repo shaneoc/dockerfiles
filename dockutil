@@ -5,24 +5,36 @@ import sys
 import os
 import argparse
 import subprocess
+import json
+import re
 
 class Main:
     def __init__(self):
         parser = argparse.ArgumentParser()
         parser.add_argument('action')
-        parser.add_argument('image', nargs='?', default='all')
+        parser.add_argument('name', nargs='?', default='all')
         args = parser.parse_args()
 
         self.base_dir = os.path.dirname(os.path.realpath(__file__))
         self.images_dir = os.path.join(self.base_dir, 'images')
+        self.containers_file = os.path.join(self.base_dir, 'containers.json')
+
         self.find_images()
+        self.find_containers()
 
-        if args.action == 'build':
-            self.build(args.image)
-
-        if args.action == 'list':
+        if args.action == 'images':
             for name, img in sorted(self.images.items()):
                 img.print_info()
+
+        if args.action == 'build':
+            self.build(args.name)
+
+        if args.action == 'containers':
+            for name, container in sorted(self.containers.items()):
+                container.print_info()
+
+        if args.action == 'run':
+            self.run(args.name)
 
     def find_images(self):
         self.images = dict()
@@ -30,6 +42,17 @@ class Main:
             if 'Dockerfile' in filenames:
                 img = Image(self, path)
                 self.images[img.name] = img
+
+    def find_containers(self):
+        with open(self.containers_file) as f:
+            file_data = f.read()
+        json_list = json.loads(re.sub(r'(//.*?\n|/\*.*?\*/)', '', file_data,
+                flags=re.DOTALL))
+
+        self.containers = dict()
+        for json_obj in json_list:
+            container = Container(json_obj)
+            self.containers[container.name] = container
 
     def build(self, requested_image):
         if requested_image == 'all':
@@ -39,7 +62,18 @@ class Main:
             if requested_image in self.images:
                 self.images[requested_image].build()
             else:
-                sys.exit('Error: unknown image: {}'.format(image))
+                sys.exit('Error: unknown image: {}'.format(requested_image))
+
+    def run(self, requested_container):
+        if requested_container == 'all':
+            for container in self.containers.values():
+                container.run()
+        else:
+            if requested_container in self.containers:
+                self.container[requested_container].run()
+            else:
+                sys.exit('Error: unknown container: {}'.
+                        format(requested_container))
 
 class Image:
     def __init__(self, main, path):
@@ -48,6 +82,25 @@ class Image:
 
     def build(self):
         call('sudo docker.io build -t {} {}'.format(self.name, self.path))
+
+    def print_info(self):
+        print(self.name)
+
+class Container:
+    def __init__(self, json_obj):
+        self.name = json_obj['name']
+        self.image = json_obj['image']
+        self.args = json_obj.get('args', '')
+        self.volumes = json_obj.get('volumes', [])
+
+    def run(self):
+        print('Stopping any existing container: ' + self.name)
+        call('sudo docker.io stop {} 2>/dev/null || true'.format(self.name))
+        call('sudo docker.io rm {} 2>/dev/null || true'.format(self.name))
+        print('Running new container: ' + self.name)
+        call('sudo docker.io run -d --name {name} {volumes} {image} {args}'
+                .format(name=self.name, image=self.image, args=self.args,
+                    volumes=' '.join('-v '+ v for v in self.volumes)))
 
     def print_info(self):
         print(self.name)
