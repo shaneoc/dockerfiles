@@ -7,6 +7,7 @@ import argparse
 import subprocess
 import json
 import re
+from collections import OrderedDict
 
 class Main:
     def __init__(self):
@@ -18,7 +19,9 @@ class Main:
         self.base_dir = os.path.dirname(os.path.realpath(__file__))
         self.images_dir = os.path.join(self.base_dir, 'images')
         self.containers_file = os.path.join(self.base_dir, 'containers.json')
+        self.hosts_file = os.path.join(self.base_dir, 'hosts')
 
+        self.find_hostnames()
         self.find_images()
         self.find_containers()
 
@@ -35,6 +38,16 @@ class Main:
 
         if args.action == 'run':
             self.run(args.name)
+
+        if args.action == 'add-ips':
+            self.add_ips()
+
+    def find_hostnames(self):
+        self.hostnames = OrderedDict()
+        with open(self.hosts_file) as f:
+            for line in f:
+                ip, hostname = line.strip().split()
+                self.hostnames[hostname] = ip
 
     def find_images(self):
         self.images = dict()
@@ -67,13 +80,28 @@ class Main:
     def run(self, requested_container):
         if requested_container == 'all':
             for container in self.containers.values():
-                container.run()
+                container.run(self)
         else:
             if requested_container in self.containers:
-                self.container[requested_container].run()
+                self.container[requested_container].run(self)
             else:
                 sys.exit('Error: unknown container: {}'.
                         format(requested_container))
+
+    def add_ips(self):
+        routes = subprocess.check_output(['ip', 'route', 'list'],
+                universal_newlines=True).split('\n')
+
+        default_gw = None
+        for route in routes:
+            parts = route.split()
+            if len(parts) >= 5 and parts[0] == 'default':
+                assert default_gw == None
+                default_gw = parts[4]
+        assert default_gw != None
+
+        for i, (hostname, ip) in enumerate(self.hostnames.items()):
+                call('sudo ifconfig {}:{} {} up'.format(default_gw, i, ip))
 
 class Image:
     def __init__(self, main, path):
@@ -91,16 +119,21 @@ class Container:
         self.name = json_obj['name']
         self.image = json_obj['image']
         self.args = json_obj.get('args', '')
+        self.ports = json_obj.get('ports', [])
         self.volumes = json_obj.get('volumes', [])
 
-    def run(self):
+    def run(self, main):
         print('Stopping any existing container: ' + self.name)
         call('sudo docker.io stop {} 2>/dev/null || true'.format(self.name))
         call('sudo docker.io rm {} 2>/dev/null || true'.format(self.name))
         print('Running new container: ' + self.name)
-        call('sudo docker.io run -d --name {name} {volumes} {image} {args}'
-                .format(name=self.name, image=self.image, args=self.args,
-                    volumes=' '.join('-v '+ v for v in self.volumes)))
+
+        ports = ' '.join('-p {}:{}:{}'.format(main.hostnames[p[0].split(':')[0]],
+            p[0].split(':')[1], p[1]) for p in self.ports)
+        volumes = ' '.join('-v '+ v for v in self.volumes)
+        call('sudo docker.io run -d --name {name} {ports} {volumes} {image} {args}'
+                .format(name=self.name, ports=ports, volumes=volumes,
+                    image=self.image, args=self.args))
 
     def print_info(self):
         print(self.name)
