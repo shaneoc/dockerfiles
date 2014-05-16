@@ -10,10 +10,11 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade
 RUN DEBIAN_FRONTEND=noninteractive apt-get -y install ssh git
 
 # Copy SSH config
-ADD ssh /etc/ssh
-RUN chown -R root.root /etc/ssh
-RUN chmod 755 /etc/ssh
-RUN chmod 644 /etc/ssh/*
+ADD ssh_config /etc/ssh/
+ADD sshd_config /etc/ssh/
+RUN chown -R root.root /etc/ssh/
+RUN chmod 644 /etc/ssh/ssh_config
+RUN chmod 644 /etc/ssh/sshd_config
 
 # Create directory that SSH needs
 RUN mkdir /var/run/sshd
