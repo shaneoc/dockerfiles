@@ -1,5 +1,0 @@
-#!/bin/bash
-
-echo "Commands are:"
-echo "ls -- list repositories"
-echo "mk <repo name> -- make new repository"
