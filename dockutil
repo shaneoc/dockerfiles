@@ -18,8 +18,9 @@ class Main:
 
         self.base_dir = os.path.dirname(os.path.realpath(__file__))
         self.images_dir = os.path.join(self.base_dir, 'images')
-        self.containers_file = os.path.join(self.base_dir, 'containers.json')
-        self.hosts_file = os.path.join(self.base_dir, 'hosts')
+        self.containers_file = os.path.join(self.base_dir, 'containers',
+                'containers.json')
+        self.hosts_file = os.path.join(self.base_dir, 'containers', 'hosts')
 
         self.find_hostnames()
         self.find_images()
