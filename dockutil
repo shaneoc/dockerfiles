@@ -83,7 +83,7 @@ class Main:
                 container.run(self)
         else:
             if requested_container in self.containers:
-                self.container[requested_container].run(self)
+                self.containers[requested_container].run(self)
             else:
                 sys.exit('Error: unknown container: {}'.
                         format(requested_container))
