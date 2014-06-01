@@ -118,6 +118,7 @@ class Image:
 class Container:
     def __init__(self, json_obj):
         self.name = json_obj['name']
+        self.hostname = json_obj.get('hostname', None)
         self.image = json_obj['image']
         self.args = json_obj.get('args', '')
         self.ports = json_obj.get('ports', [])
@@ -129,12 +130,13 @@ class Container:
         call('sudo docker.io rm {} 2>/dev/null || true'.format(self.name))
         print('Running new container: ' + self.name)
 
+        hostname = '-h ' + self.hostname if self.hostname else ''
         ports = ' '.join('-p {}:{}:{}'.format(main.hostnames[p[0].split(':')[0]],
             p[0].split(':')[1], p[1]) for p in self.ports)
         volumes = ' '.join('-v '+ v for v in self.volumes)
-        call('sudo docker.io run -d --name {name} {ports} {volumes} {image} {args}'
-                .format(name=self.name, ports=ports, volumes=volumes,
-                    image=self.image, args=self.args))
+        call('sudo docker.io run -d --name {name} {hostname} {ports} {volumes} {image} {args}'
+                .format(name=self.name, hostname=hostname, ports=ports,
+                    volumes=volumes, image=self.image, args=self.args))
 
     def print_info(self):
         print(self.name)
