@@ -9,6 +9,73 @@ import json
 import re
 from collections import OrderedDict
 
+bridge_name = 'br0'
+
+class ContainerConfig:
+    def __init__(self, containers_file):
+        config = self.parse_json(containers_file)
+        self.containers_file = containers_file
+        self.hostnames = self.parse_hostnames(config['hostnames'])
+        self.bridges = self.parse_bridges(config['bridges'], self.hostnames)
+        self.forwards = self.parse_forwards(config['forwards'], self.hostnames)
+        self.containers = self.parse_containers(config['containers'],
+                self.bridges, self.forwards)
+
+    @staticmethod
+    def parse_json(filename):
+        with open(filename) as f:
+            file_data = f.read()
+        return json.loads(re.sub(r'(//.*?\n|/\*.*?\*/)', '', file_data,
+            flags=re.DOTALL))
+
+    @staticmethod
+    def lookup_ip_str(ip_str, hostnames):
+        return hostnames[ip_str] if ip_str in hostnames else ip_str.split('/',1)
+
+    @classmethod
+    def parse_hostnames(cls, json_obj):
+        hostnames = OrderedDict()
+        for name, ip_str in json_obj:
+            hostnames[name] = cls.lookup_ip_str(ip_str, hostnames)
+        return hostnames
+
+    @classmethod
+    def parse_bridges(cls, json_obj, hostnames):
+        class BridgeConnection:
+            def __init__(self, bridge_name, entry):
+                self.bridge_name = bridge_name
+                self.container, ip_str, self.net_iface = entry
+                self.ip, self.netmask = cls.lookup_ip_str(ip_str, hostnames)
+        bridges = dict()
+        for bridge_name, bridge_list in json_obj.items():
+            for entry in bridge_list:
+                conn = BridgeConnection(bridge_name, entry)
+                bridges[conn.container] = bridges.get(conn.container, []) + [conn]
+        return bridges
+
+    @classmethod
+    def parse_forwards(cls, json_obj, hostnames):
+        class Forward:
+            def __init__(self, entry):
+                source, self.container, self.container_port = entry
+                ip_str, self.port = source.split(':',1)
+                self.ip, _ = cls.lookup_ip_str(ip_str, hostnames)
+        return [Forward(entry) for entry in json_obj]
+
+    @staticmethod
+    def parse_containers(json_obj, bridges, forwards):
+        class Container:
+            def __init__(self, entry):
+                self.name = entry['name']
+                self.hostname = entry.get('hostname', None)
+                self.image = entry['image']
+                self.args = entry.get('args', '')
+                self.volumes = entry.get('volumes', [])
+                self.forwards = [f for f in forwards if f.container == self.name]
+                self.bridges = bridges.get(self.name, [])
+
+        return {entry['name']: Container(entry) for entry in json_obj}
+
 class Main:
     def __init__(self):
         parser = argparse.ArgumentParser()
@@ -17,14 +84,13 @@ class Main:
         args = parser.parse_args()
 
         self.base_dir = os.path.dirname(os.path.realpath(__file__))
-        self.images_dir = os.path.join(self.base_dir, 'images')
-        self.containers_file = os.path.join(self.base_dir, 'containers',
+        images_dir = os.path.join(self.base_dir, 'images')
+        containers_file = os.path.join(self.base_dir, 'containers',
                 'containers.json')
-        self.hosts_file = os.path.join(self.base_dir, 'containers', 'hosts')
 
-        self.find_hostnames()
-        self.find_images()
-        self.find_containers()
+        self.images = self.find_images(images_dir)
+        self.cfg = ContainerConfig(containers_file)
+        self.containers = self.gen_containers(self.cfg)
 
         if args.action == 'images':
             for name, img in sorted(self.images.items()):
@@ -43,30 +109,19 @@ class Main:
         if args.action == 'add-ips':
             self.add_ips()
 
-    def find_hostnames(self):
-        self.hostnames = OrderedDict()
-        with open(self.hosts_file) as f:
-            for line in f:
-                ip, hostname = line.strip().split()
-                self.hostnames[hostname] = ip
-
-    def find_images(self):
-        self.images = dict()
-        for path, _, filenames in os.walk(self.images_dir):
+    @staticmethod
+    def find_images(images_dir):
+        images = dict()
+        for path, _, filenames in os.walk(images_dir):
             if 'Dockerfile' in filenames:
-                img = Image(self, path)
-                self.images[img.name] = img
+                img = Image(path, images_dir)
+                images[img.name] = img
+        return images
 
-    def find_containers(self):
-        with open(self.containers_file) as f:
-            file_data = f.read()
-        json_list = json.loads(re.sub(r'(//.*?\n|/\*.*?\*/)', '', file_data,
-                flags=re.DOTALL))
-
-        self.containers = dict()
-        for json_obj in json_list:
-            container = Container(json_obj)
-            self.containers[container.name] = container
+    @staticmethod
+    def gen_containers(cfg):
+        return {name: Container(container_cfg) for name, container_cfg in
+                cfg.containers.items()}
 
     def build(self, requested_image):
         if requested_image == 'all':
@@ -101,13 +156,14 @@ class Main:
                 default_gw = parts[4]
         assert default_gw != None
 
-        for i, (hostname, ip) in enumerate(self.hostnames.items()):
-                call('sudo ifconfig {}:{} {} up'.format(default_gw, i, ip))
+        for i, (hostname, (ip, netmask)) in enumerate(self.cfg.hostnames.items()):
+                call('sudo ifconfig {}:{} {}/{} up'.format(default_gw, i, ip,
+                    netmask))
 
 class Image:
-    def __init__(self, main, path):
+    def __init__(self, path, images_dir):
         self.path = path
-        self.name = os.path.relpath(path, main.images_dir).replace('/','.')
+        self.name = os.path.relpath(path, images_dir).replace('/','.')
 
     def build(self):
         call('sudo docker.io build -t {} {}'.format(self.name, self.path))
@@ -116,34 +172,34 @@ class Image:
         print(self.name)
 
 class Container:
-    def __init__(self, json_obj):
-        self.name = json_obj['name']
-        self.hostname = json_obj.get('hostname', None)
-        self.image = json_obj['image']
-        self.args = json_obj.get('args', '')
-        self.ports = json_obj.get('ports', [])
-        self.volumes = json_obj.get('volumes', [])
+    def __init__(self, cfg):
+        self.cfg = cfg
 
     def run(self, main):
-        print('Stopping any existing container: ' + self.name)
-        call('sudo docker.io stop {} 2>/dev/null || true'.format(self.name))
-        call('sudo docker.io rm {} 2>/dev/null || true'.format(self.name))
-        print('Running new container: ' + self.name)
+        print('Stopping any existing container: ' + self.cfg.name)
+        call('sudo docker.io stop {} 2>/dev/null || true'.format(self.cfg.name))
+        call('sudo docker.io rm {} 2>/dev/null || true'.format(self.cfg.name))
+        print('Running new container: ' + self.cfg.name)
 
-        hostname = '-h ' + self.hostname if self.hostname else ''
-        ports = ' '.join('-p {}:{}:{}'.format(main.hostnames[p[0].split(':')[0]],
-            p[0].split(':')[1], p[1]) for p in self.ports)
-        volumes = ' '.join('-v '+ v for v in self.volumes)
-        call('sudo docker.io run -d --name {name} {hostname} {ports} {volumes} {image} {args}'
-                .format(name=self.name, hostname=hostname, ports=ports,
-                    volumes=volumes, image=self.image, args=self.args))
+        hostname = '-h ' + self.cfg.hostname if self.cfg.hostname else ''
+        ports = ' '.join('-p {}:{}:{}'.format(f.ip, f.port, f.container_port)
+                for f in self.cfg.forwards)
+        volumes = ' '.join('-v '+ v for v in self.cfg.volumes)
+        call('sudo docker.io run -d --name {} {} {} {} {} {}' .format(
+            self.cfg.name, hostname, ports, volumes, self.cfg.image,
+            self.cfg.args))
+
+        for conn in self.cfg.bridges:
+            call("sudo sh -c 'PATH={}:$PATH {}/pipework/pipework {} {} {}/{}'".format(
+                main.base_dir, main.base_dir, conn.bridge_name, self.cfg.name,
+                conn.ip, conn.netmask))
 
     def print_info(self):
         print(self.name)
 
 def call(cmd):
-    # print('$ ' + cmd)
-    subprocess.check_call(cmd, shell=True)
+    print('$ ' + cmd)
+    # subprocess.check_call(cmd, shell=True)
 
 if __name__ == '__main__':
     Main()
