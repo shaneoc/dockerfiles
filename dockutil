@@ -81,6 +81,7 @@ class Main:
         parser = argparse.ArgumentParser()
         parser.add_argument('action')
         parser.add_argument('name', nargs='?', default='all')
+        parser.add_argument('-i', action='store_true')
         args = parser.parse_args()
 
         self.base_dir = os.path.dirname(os.path.realpath(__file__))
@@ -88,8 +89,8 @@ class Main:
         containers_file = os.path.join(self.base_dir, 'containers',
                 'containers.json')
 
-        self.images = self.find_images(images_dir)
         self.cfg = ContainerConfig(containers_file)
+        self.images = self.find_images(images_dir)
         self.containers = self.gen_containers(self.cfg)
 
         if args.action == 'images':
@@ -104,7 +105,7 @@ class Main:
                 container.print_info()
 
         if args.action == 'run':
-            self.run(args.name)
+            self.run(args.name, args.i)
 
         if args.action == 'add-ips':
             self.add_ips()
@@ -133,13 +134,13 @@ class Main:
             else:
                 sys.exit('Error: unknown image: {}'.format(requested_image))
 
-    def run(self, requested_container):
+    def run(self, requested_container, interactive):
         if requested_container == 'all':
             for container in self.containers.values():
-                container.run(self)
+                container.run(self, interactive)
         else:
             if requested_container in self.containers:
-                self.containers[requested_container].run(self)
+                self.containers[requested_container].run(self, interactive)
             else:
                 sys.exit('Error: unknown container: {}'.
                         format(requested_container))
@@ -175,18 +176,19 @@ class Container:
     def __init__(self, cfg):
         self.cfg = cfg
 
-    def run(self, main):
+    def run(self, main, interactive):
         print('Stopping any existing container: ' + self.cfg.name)
         call('sudo docker.io stop {} 2>/dev/null || true'.format(self.cfg.name))
         call('sudo docker.io rm {} 2>/dev/null || true'.format(self.cfg.name))
         print('Running new container: ' + self.cfg.name)
 
+        misc_args = '-i -t' if interactive else '-d'
         hostname = '-h ' + self.cfg.hostname if self.cfg.hostname else ''
         ports = ' '.join('-p {}:{}:{}'.format(f.ip, f.port, f.container_port)
                 for f in self.cfg.forwards)
         volumes = ' '.join('-v '+ v for v in self.cfg.volumes)
-        call('sudo docker.io run -d --name {} {} {} {} {} {}' .format(
-            self.cfg.name, hostname, ports, volumes, self.cfg.image,
+        call('sudo docker.io run {} --name {} {} {} {} {}' .format(
+            misc_args, self.cfg.name, hostname, ports, volumes, self.cfg.image,
             self.cfg.args))
 
         for conn in self.cfg.bridges:
@@ -195,11 +197,11 @@ class Container:
                 conn.ip, conn.netmask))
 
     def print_info(self):
-        print(self.name)
+        print(self.cfg.name)
 
 def call(cmd):
-    print('$ ' + cmd)
-    # subprocess.check_call(cmd, shell=True)
+    # print('$ ' + cmd)
+    subprocess.check_call(cmd, shell=True)
 
 if __name__ == '__main__':
     Main()
