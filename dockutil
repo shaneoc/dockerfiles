@@ -59,7 +59,7 @@ class ContainerConfig:
             def __init__(self, entry):
                 source, self.container, self.container_port = entry
                 ip_str, self.port = source.split(':',1)
-                self.ip, _ = cls.lookup_ip_str(ip_str, hostnames)
+                self.ip, self.netmask = cls.lookup_ip_str(ip_str, hostnames)
         return [Forward(entry) for entry in json_obj]
 
     @staticmethod
@@ -157,9 +157,14 @@ class Main:
                 default_gw = parts[4]
         assert default_gw != None
 
-        for i, (hostname, (ip, netmask)) in enumerate(self.cfg.hostnames.items()):
-                call('sudo ifconfig {}:{} {}/{} up'.format(default_gw, i, ip,
-                    netmask))
+        iface_index = 0
+        finished_ips = set()
+        for forward in self.cfg.forwards:
+                if forward.ip not in finished_ips:
+                    finished_ips.add(forward.ip)
+                    call('sudo ifconfig {}:{} {}/{} up'.format(default_gw,
+                        iface_index, forward.ip, forward.netmask))
+                    iface_index += 1
 
 class Image:
     def __init__(self, path, images_dir):
