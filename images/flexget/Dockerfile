@@ -10,11 +10,6 @@ RUN pip install transmissionrpc
 # Create user
 RUN useradd --create-home flexget
 
-# Add symlink
-RUN mkdir /home/flexget/.flexget
-RUN ln -s /cfg/config.yml /home/flexget/.flexget/config.yml
-RUN chown -R flexget.flexget /home/flexget/.flexget
-
 # Copy start script
 ADD start.sh /start.sh
 RUN chown root.root /start.sh
