@@ -192,7 +192,7 @@ class Container:
         ports = ' '.join('-p {}:{}:{}'.format(f.ip, f.port, f.container_port)
                 for f in self.cfg.forwards)
         volumes = ' '.join('-v '+ v for v in self.cfg.volumes)
-        call('sudo docker.io run {} --name {} {} {} {} {}' .format(
+        call('sudo docker.io run {} --name {} {} {} {} {} {}' .format(
             misc_args, self.cfg.name, hostname, ports, volumes, self.cfg.image,
             self.cfg.args))
 
