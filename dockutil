@@ -172,7 +172,7 @@ class Image:
         self.name = os.path.relpath(path, images_dir).replace('/','.')
 
     def build(self):
-        call('sudo docker.io build -t {} {}'.format(self.name, self.path))
+        call('sudo docker.io build --no-cache -t {} {}'.format(self.name, self.path))
 
     def print_info(self):
         print(self.name)
