@@ -13,4 +13,4 @@ fi
 
 chown -R flexget.flexget /cfg
 
-exec sudo -i -u flexget flexget daemon start
+exec sudo -i -u flexget flexget "$@"
