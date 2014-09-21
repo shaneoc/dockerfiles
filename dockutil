@@ -73,6 +73,7 @@ class ContainerConfig:
                 self.volumes = entry.get('volumes', [])
                 self.forwards = [f for f in forwards if f.container == self.name]
                 self.bridges = bridges.get(self.name, [])
+                self.is_daemon = entry.get('type', 'daemon') == 'daemon'
 
         return {entry['name']: Container(entry) for entry in json_obj}
 
@@ -187,7 +188,10 @@ class Container:
         call('sudo docker.io rm {} 2>/dev/null || true'.format(self.cfg.name))
         print('Running new container: ' + self.cfg.name)
 
-        misc_args = '-i -t' if interactive else '-d'
+        misc_args = ''
+        if interactive:          misc_args = '-i -t'
+        elif self.cfg.is_daemon: misc_args = '-d'
+        else:                    misc_args = ''
         hostname = '-h ' + self.cfg.hostname if self.cfg.hostname else ''
         ports = ' '.join('-p {}:{}:{}'.format(f.ip, f.port, f.container_port)
                 for f in self.cfg.forwards)
