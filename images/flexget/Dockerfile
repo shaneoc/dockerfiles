@@ -4,7 +4,8 @@ FROM ubuntu
 RUN apt-get update
 RUN DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade
 RUN DEBIAN_FRONTEND=noninteractive apt-get -y install python-pip
-RUN pip install flexget
+RUN pip install six>=1.7.0
+RUN pip install flexget==1.2
 RUN pip install transmissionrpc
 
 # Create user
